@@ -49,6 +49,7 @@ Limitations
 Only processes HIAC PDF reports in the standard format
 Requires proper PDF text extraction capability
 Excel output is limited to the Harmonised DAA template format
+
 Support
 For questions, suggestions, or issues, please contact Nicholas Michelarakis.
 
