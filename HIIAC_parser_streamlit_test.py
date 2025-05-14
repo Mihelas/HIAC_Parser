@@ -152,73 +152,135 @@ def create_raw_data_excel(data_dicts):
 def main():
     st.title("PDF Reader and Info Extractor App")
     st.markdown("""
-    This "app" allows you to upload one or multiple HIAC PDF files, extract the necessary information for iLab, 
-    and save it into an Excel iLab upload template. New uploads will be added to the existing Excel file (you'll need to download it again). 
-    To start fresh, reload the app or delete the uploaded PDFs.
+    This "app" allows you to upload one or multiple HIAC PDF files, extract the necessary information, 
+    and save it into an Excel file using the Harmonised DAA template format. 
     The uploaded PDFs files will appear on the excel file in the order they were uploaded.
-    Please tick the check-box if you also need the Harmonised DAA template and it will create a second excel file.  
+    New uploads will be added to the existing Excel file (you'll need to download it again). 
+    To start fresh, reload the app or delete the uploaded PDFs.
     For any questions or suggestions, contact Nicholas Michelarakis. :)
     
-    Mit dieser "App" können Sie eine oder mehrere HIAC-PDF-Dateien hochladen, um die Informationen in einem für iLab passenden Template verfügbar zu machen. 
+    Mit dieser "App" können Sie eine oder mehrere HIAC-PDF-Dateien hochladen, um die Informationen in einem harmonisierten DAA-Template verfügbar zu machen. 
     Die hochgeladenen PDF-Dateien erscheinen in der Excel-Datei in der Reihenfolge, in der sie hochgeladen wurden. 
-    Bitte aktivieren Sie das Kontrollkästchen, wenn Sie das Format für das harmonisierte Upload-Template benötigen, und es wird eine zweite Excel-Datei erstellt. 
     Neue Uploads werden der bestehenden Excel-Datei hinzugefügt (Sie müssen sie erneut herunterladen). 
-    Um neu zu beginnen, laden Sie die Anwendung neu oder löschen Sie die hochgeladenen PDFs.  Bei Fragen oder Anregungen wenden Sie sich bitte an Nicholas Michelarakis :)
+    Um neu zu beginnen, laden Sie die Anwendung neu oder löschen Sie die hochgeladenen PDFs.
+    Bei Fragen oder Anregungen wenden Sie sich bitte an Nicholas Michelarakis :)
     """)
+    
+    # Initialize session state variables if they don't exist
+    if 'processed_files' not in st.session_state:
+        st.session_state.processed_files = []
+    if 'processing_complete' not in st.session_state:
+        st.session_state.processing_complete = False
+    if 'last_upload_id' not in st.session_state:
+        st.session_state.last_upload_id = None
     
     uploaded_files = st.file_uploader("Choose PDF files", type="pdf", accept_multiple_files=True)
     
     if uploaded_files:
-        st.session_state['uploaded_files'] = []
-        st.session_state['data_dicts'] = []
+        # Generate a unique ID for this batch of uploads
+        current_upload_id = hash(tuple(f.name for f in uploaded_files))
+        
+        # Reset processed files if new files are uploaded
+        if st.session_state.last_upload_id != current_upload_id:
+            st.session_state.processed_files = []
+            st.session_state.last_upload_id = current_upload_id
+        
+        # Show file summary
+        st.write(f"📁 Number of files uploaded: **{len(uploaded_files)}**")
+        
+        # Create an expandable section to show uploaded files
+        with st.expander("View uploaded files"):
+            for file in uploaded_files:
+                st.write(f"- {file.name}")
+        
         data_dicts = []
         
-        for uploaded_file in uploaded_files:
-            text = extract_text_from_pdf(uploaded_file)
-            if text:
-                page_data_dicts = extract_info_from_pages(text)
-                if page_data_dicts:
-                    data_dicts.extend(page_data_dicts)
+        # Only process files if they haven't been processed yet
+        if len(st.session_state.processed_files) != len(uploaded_files):
+            # Create a progress bar
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            # Process each file with progress updates
+            for idx, uploaded_file in enumerate(uploaded_files):
+                try:
+                    # Skip if already processed
+                    if uploaded_file.name in st.session_state.processed_files:
+                        continue
+                        
+                    status_text.text(f"Processing {uploaded_file.name}...")
+                    text = extract_text_from_pdf(uploaded_file)
+                    
+                    if text:
+                        page_data_dicts = extract_info_from_pages(text)
+                        if page_data_dicts:
+                            data_dicts.extend(page_data_dicts)
+                            st.session_state.processed_files.append(uploaded_file.name)
+                        else:
+                            st.warning(f"⚠️ No data could be extracted from {uploaded_file.name}")
+                    
+                    # Update progress
+                    progress = (idx + 1) / len(uploaded_files)
+                    progress_bar.progress(progress)
+                    
+                except Exception as e:
+                    st.error(f"❌ Error processing {uploaded_file.name}: {str(e)}")
+                    continue
+            
+            # Clear progress bar and status when complete
+            progress_bar.empty()
+            status_text.empty()
+        else:
+            # If all files are already processed, just load the data
+            for uploaded_file in uploaded_files:
+                text = extract_text_from_pdf(uploaded_file)
+                if text:
+                    page_data_dicts = extract_info_from_pages(text)
+                    if page_data_dicts:
+                        data_dicts.extend(page_data_dicts)
         
         if data_dicts:
-            st.success("PDFs were parsed successfully.")
+            st.success(f"✅ Successfully processed {len(st.session_state.processed_files)} files")
             
-            raw_data_checkbox = st.checkbox("Check this for the DAA template")
-            excel_data = create_excel(data_dicts)
-            if raw_data_checkbox:
-                raw_data_excel = create_raw_data_excel(data_dicts)
+            excel_data = create_raw_data_excel(data_dicts)
             
+            # File name input with validation
             if "file_name" not in st.session_state:
-                st.session_state.file_name = "extracted_info"
+                st.session_state.file_name = "HIAC_DAA_format"
             
             def update_file_name():
-                st.session_state.file_name = st.session_state.file_name_input
+                # Remove invalid characters from filename
+                valid_name = re.sub(r'[<>:"/\\|?*]', '', st.session_state.file_name_input)
+                st.session_state.file_name = valid_name
             
             file_name = st.text_input(
                 "Enter the desired file name (without extension):", 
                 st.session_state.file_name, 
                 key="file_name_input", 
-                on_change=update_file_name
+                on_change=update_file_name,
+                help="The file name will be automatically sanitized to remove invalid characters"
             )
             
             if excel_data:
                 if st.download_button(
-                    label="Download Excel file",
+                    label="📥 Download Excel file",
                     data=excel_data,
                     file_name=f"{st.session_state.file_name}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     on_click=update_file_name
                 ):
-                    st.success(f"Excel file '{st.session_state.file_name}.xlsx' was created successfully.")
-            
-            if raw_data_checkbox and raw_data_excel:
-                if st.download_button(
-                    label="Download Harmonised DAA format Excel file",
-                    data=raw_data_excel,
-                    file_name="Harmonised_DAA_format.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                ):
-                    st.success("DAA formatted Excel file 'Harmonised_DAA_format.xlsx' was created successfully.")
+                    st.balloons()
+                    st.success(f"✅ Excel file '{st.session_state.file_name}.xlsx' was created successfully.")
+        
+        else:
+            st.error("❌ No data could be extracted from any of the uploaded files. Please check if the files are in the correct format.")
+    
+    # Show helpful message when no files are uploaded
+    else:
+        st.info("👆 Please upload one or more PDF files to begin")
+        # Clear processed files when no files are uploaded
+        st.session_state.processed_files = []
+        st.session_state.last_upload_id = None
 
 if __name__ == "__main__":
     main()
